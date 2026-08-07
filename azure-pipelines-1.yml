@@ -38,9 +38,41 @@ stages:
               docker build -t $(app2Image) $(app2Path)
             displayName: 'Build rang-de-basanti image'
 
+  - stage: Scan
+    displayName: 'Scan Docker Images for Vulnerabilities'
+    dependsOn: Build
+    jobs:
+      - job: ScanImages
+        displayName: 'Trivy vulnerability scan'
+        steps:
+          - script: |
+              echo "Pulling Trivy scanner image..."
+              docker pull aquasec/trivy:latest
+            displayName: 'Pull Trivy'
+
+          - script: |
+              echo "Scanning App 1 image: $(app1Image)"
+              docker run --rm ^
+                -v /var/run/docker.sock:/var/run/docker.sock ^
+                aquasec/trivy:latest image ^
+                --severity HIGH,CRITICAL ^
+                --exit-code 0 ^
+                $(app1Image)
+            displayName: 'Scan aaya-saawan-jhoom-ke image'
+
+          - script: |
+              echo "Scanning App 2 image: $(app2Image)"
+              docker run --rm ^
+                -v /var/run/docker.sock:/var/run/docker.sock ^
+                aquasec/trivy:latest image ^
+                --severity HIGH,CRITICAL ^
+                --exit-code 0 ^
+                $(app2Image)
+            displayName: 'Scan rang-de-basanti image'
+
   - stage: Deploy
     displayName: 'Run Containers on Localhost'
-    dependsOn: Build
+    dependsOn: Scan
     jobs:
       - job: RunContainers
         displayName: 'Run both containers'
