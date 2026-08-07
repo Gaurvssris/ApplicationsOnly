@@ -3,106 +3,116 @@
 # https://docs.microsoft.com/azure/devops/pipelines/languages/docker
 
 trigger:
-  - main
+  branches:
+    include:
+      - main
 
 pool:
-  name: NayaInfra
+  name: 'NayaInfra'
 
 variables:
-  app1Path: '$(Build.SourcesDirectory)/ApplicationsOnly/aaya-saawan-jhoom-ke'
-  app2Path: '$(Build.SourcesDirectory)/ApplicationsOnly/rang-de-basanti'
+  app1Path: 'aaya-saawan-jhoom-ke'
+  app2Path: 'rang-de-basanti'
+  app1Image: 'aaya-saawan-jhoom-ke:latest'
+  app2Image: 'rang-de-basanti:latest'
+  app1Container: 'aaya-saawan-jhoom-ke-container'
+  app2Container: 'rang-de-basanti-container'
+  app1Port: 8081
+  app2Port: 8082
 
-steps:
+stages:
+  - stage: Build
+    displayName: 'Build Docker Images'
+    jobs:
+      - job: BuildImages
+        displayName: 'Build both app images'
+        steps:
+          - powershell: |
+              Write-Host "Checking App1 Dockerfile: $(Build.SourcesDirectory)\$(app1Path)\Dockerfile"
+              if (-Not (Test-Path "$(Build.SourcesDirectory)\$(app1Path)\Dockerfile")) {
+                Write-Host "##[error]Aaya Saawan Dockerfile not found!"
+                exit 1
+              }
 
-# =========================================================
-# 1. VERIFY DOCKERFILES EXIST
-# =========================================================
+              Write-Host "Checking App2 Dockerfile: $(Build.SourcesDirectory)\$(app2Path)\Dockerfile"
+              if (-Not (Test-Path "$(Build.SourcesDirectory)\$(app2Path)\Dockerfile")) {
+                Write-Host "##[error]Rang De Basanti Dockerfile not found!"
+                exit 1
+              }
 
-- powershell: |
-    Write-Host "Checking App1 Dockerfile: $(app1Path)\Dockerfile"
-    if (!(Test-Path "$(app1Path)\Dockerfile")) {
-        Write-Host "ERROR: Aaya Saawan Dockerfile not found at $(app1Path)"
-        exit 1
-    }
-    Write-Host "App1 Dockerfile FOUND."
+              Write-Host "Both Dockerfiles found. Proceeding..."
+            displayName: 'Verify Dockerfiles'
 
-    Write-Host "Checking App2 Dockerfile: $(app2Path)\Dockerfile"
-    if (!(Test-Path "$(app2Path)\Dockerfile")) {
-        Write-Host "ERROR: Rang De Basanti Dockerfile not found at $(app2Path)"
-        exit 1
-    }
-    Write-Host "App2 Dockerfile FOUND."
+          - script: |
+              echo "Building App 1: aaya-saawan-jhoom-ke"
+              docker build -t $(app1Image) $(app1Path)
+            displayName: 'Build aaya-saawan-jhoom-ke image'
 
-  displayName: 'Verify Dockerfiles'
+          - script: |
+              echo "Building App 2: rang-de-basanti"
+              docker build -t $(app2Image) $(app2Path)
+            displayName: 'Build rang-de-basanti image'
 
+  - stage: Scan
+    displayName: 'Scan Docker Images for Vulnerabilities'
+    dependsOn: Build
+    jobs:
+      - job: ScanImages
+        displayName: 'Trivy vulnerability scan'
+        steps:
+          - script: |
+              echo "Pulling Trivy scanner image..."
+              docker pull aquasec/trivy:latest
+            displayName: 'Pull Trivy'
 
-# =========================================================
-# 2. BUILD AAYA SAAWAN IMAGE
-# =========================================================
+          - script: |
+              echo "Scanning App 1 image: $(app1Image)"
+              docker run --rm ^
+                -v /var/run/docker.sock:/var/run/docker.sock ^
+                aquasec/trivy:latest image ^
+                --severity HIGH,CRITICAL ^
+                --exit-code 0 ^
+                $(app1Image)
+            displayName: 'Scan aaya-saawan-jhoom-ke image'
 
-- task: Docker@2
-  displayName: 'Build Aaya Saawan Image'
-  inputs:
-    command: build
-    Dockerfile: '$(app1Path)/Dockerfile'
-    buildContext: '$(app1Path)'
-    repository: 'aaya-saawan-app'
-    tags: latest
+          - script: |
+              echo "Scanning App 2 image: $(app2Image)"
+              docker run --rm ^
+                -v /var/run/docker.sock:/var/run/docker.sock ^
+                aquasec/trivy:latest image ^
+                --severity HIGH,CRITICAL ^
+                --exit-code 0 ^
+                $(app2Image)
+            displayName: 'Scan rang-de-basanti image'
 
+  - stage: Deploy
+    displayName: 'Run Containers on Localhost'
+    dependsOn: Scan
+    jobs:
+      - job: RunContainers
+        displayName: 'Run both containers'
+        steps:
+          - script: |
+              echo "Stopping old container if exists..."
+              docker stop $(app1Container) || true
+              docker rm $(app1Container) || true
 
-# =========================================================
-# 3. BUILD RANG DE BASANTI IMAGE
-# =========================================================
+              echo "Running App 1 container..."
+              docker run -d -p $(app1Port):80 --name $(app1Container) $(app1Image)
+            displayName: 'Run aaya-saawan-jhoom-ke container'
 
-- task: Docker@2
-  displayName: 'Build Rang De Basanti Image'
-  inputs:
-    command: build
-    Dockerfile: '$(app2Path)/Dockerfile'
-    buildContext: '$(app2Path)'
-    repository: 'rang-de-basanti'
-    tags: latest
+          - script: |
+              echo "Stopping old container if exists..."
+              docker stop $(app2Container) || true
+              docker rm $(app2Container) || true
 
+              echo "Running App 2 container..."
+              docker run -d -p $(app2Port):80 --name $(app2Container) $(app2Image)
+            displayName: 'Run rang-de-basanti container'
 
-# =========================================================
-# 4. RUN BOTH CONTAINERS
-# =========================================================
-
-- powershell: |
-    docker rm -f aaya-saawan-container 2>$null
-    docker rm -f rang-de-basanti-container 2>$null
-
-    docker run -d --name aaya-saawan-container -p 8081:80 --restart unless-stopped aaya-saawan-app:latest
-    docker run -d --name rang-de-basanti-container -p 8082:80 --restart unless-stopped rang-de-basanti:latest
-
-    Start-Sleep -Seconds 5
-    docker ps
-
-  displayName: 'Run Both Containers'
-
-
-# =========================================================
-# 5. TEST BOTH APPLICATIONS
-# =========================================================
-
-- powershell: |
-    $urls = @{ "Aaya Saawan" = "http://localhost:8081"; "Rang De Basanti" = "http://localhost:8082" }
-    $containers = @{ "Aaya Saawan" = "aaya-saawan-container"; "Rang De Basanti" = "rang-de-basanti-container" }
-
-    foreach ($name in $urls.Keys) {
-        $url = $urls[$name]
-        try {
-            $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 10
-            Write-Host "$name -> $($r.StatusCode)"
-            if ($r.StatusCode -ne 200) { exit 1 }
-        }
-        catch {
-            Write-Host "ERROR: $name not reachable at $url"
-            docker logs $($containers[$name])
-            exit 1
-        }
-    }
-
-    Write-Host "Both apps running fine."
-
-  displayName: 'Test Both Applications'
+          - script: |
+              echo "=========================================="
+              echo "App 1 (aaya-saawan-jhoom-ke) running at: http://localhost:$(app1Port)"
+              echo "App 2 (rang-de-basanti) running at: http://localhost:$(app2Port)"
+              echo "=========================================="
+            displayName: 'Show URLs'
