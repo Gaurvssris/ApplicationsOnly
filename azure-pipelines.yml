@@ -3,431 +3,62 @@
 # https://docs.microsoft.com/azure/devops/pipelines/languages/docker
 
 trigger:
-- main
+  - main
 
 pool:
   name: NayaInfra
 
+variables:
+  app1Path: '$(Build.SourcesDirectory)/ApplicationsOnly/aaya-sawan-jhoom-ke'
+  app2Path: '$(Build.SourcesDirectory)/ApplicationsOnly/rang-de-basanti'
+
 steps:
-
-# =========================================================
-# 1. CHECK SOURCE CODE / DOCKERFILE PATHS
-# =========================================================
-
-- powershell: |
-
-    Write-Host "=============================================="
-    Write-Host "SOURCE DIRECTORY"
-    Write-Host "=============================================="
-
-    Write-Host "Source Directory:"
-    Write-Host "$(Build.SourcesDirectory)"
-
-    Write-Host ""
-    Write-Host "=============================================="
-    Write-Host "ALL REPOSITORY FILES"
-    Write-Host "=============================================="
-
-    Get-ChildItem `
-      -Path "$(Build.SourcesDirectory)" `
-      -Recurse `
-      -File |
-      Select-Object FullName
-
-    Write-Host ""
-    Write-Host "=============================================="
-    Write-Host "SEARCHING FOR DOCKERFILES"
-    Write-Host "=============================================="
-
-    $dockerfiles = Get-ChildItem `
-      -Path "$(Build.SourcesDirectory)" `
-      -Recurse `
-      -Filter "Dockerfile" `
-      -File
-
-    if ($dockerfiles.Count -eq 0) {
-        Write-Host "ERROR: No Dockerfile found!"
-        exit 1
-    }
-
-    foreach ($file in $dockerfiles) {
-        Write-Host "Dockerfile Found: $($file.FullName)"
-    }
-
-  displayName: 'Check Repository and Dockerfiles'
-
-
-# =========================================================
-# 2. CHECK DOCKER
-# =========================================================
-
-- powershell: |
-
-    Write-Host "=============================================="
-    Write-Host "DOCKER VERSION"
-    Write-Host "=============================================="
-
-    docker --version
-
-    Write-Host ""
-    Write-Host "=============================================="
-    Write-Host "DOCKER INFO"
-    Write-Host "=============================================="
-
-    docker info
-
-  displayName: 'Check Docker'
-
-
-# =========================================================
-# 3. VERIFY APP 1 DOCKERFILE
-# =========================================================
-
-- powershell: |
-
-    $dockerfile = "$(Build.SourcesDirectory)\app\Dockerfile"
-
-    Write-Host "Checking:"
-    Write-Host $dockerfile
-
-    if (!(Test-Path $dockerfile)) {
-
-        Write-Host ""
-        Write-Host "ERROR: App 1 Dockerfile NOT FOUND!"
-        Write-Host ""
-        Write-Host "Expected location:"
-        Write-Host $dockerfile
-
-        exit 1
-    }
-
-    Write-Host ""
-    Write-Host "App 1 Dockerfile FOUND."
-
-  displayName: 'Verify App 1 Dockerfile'
-
-
-# =========================================================
-# 4. VERIFY APP 2 DOCKERFILE
-# =========================================================
-
-- powershell: |
-
-    $dockerfile = "$(Build.SourcesDirectory)\rang-de-basanti\Dockerfile"
-
-    Write-Host "Checking:"
-    Write-Host $dockerfile
-
-    if (!(Test-Path $dockerfile)) {
-
-        Write-Host ""
-        Write-Host "ERROR: App 2 Dockerfile NOT FOUND!"
-        Write-Host ""
-        Write-Host "Expected location:"
-        Write-Host $dockerfile
-
-        exit 1
-    }
-
-    Write-Host ""
-    Write-Host "App 2 Dockerfile FOUND."
-
-  displayName: 'Verify Rang De Basanti Dockerfile'
-
-
-# =========================================================
-# 5. BUILD AAYA SAAWAN APPLICATION
-# =========================================================
 
 - task: Docker@2
   displayName: 'Build Aaya Saawan Image'
   inputs:
     command: build
-    Dockerfile: '$(Build.SourcesDirectory)/app/Dockerfile'
+    Dockerfile: '$(app1Path)/Dockerfile'
     buildContext: '$(Build.SourcesDirectory)'
     repository: 'aaya-saawan-app'
-    tags: |
-      latest
-
-
-# =========================================================
-# 6. BUILD RANG DE BASANTI APPLICATION
-# =========================================================
+    tags: latest
 
 - task: Docker@2
   displayName: 'Build Rang De Basanti Image'
   inputs:
     command: build
-    Dockerfile: '$(Build.SourcesDirectory)/rang-de-basanti/Dockerfile'
-    buildContext: '$(Build.SourcesDirectory)/rang-de-basanti'
+    Dockerfile: '$(app2Path)/Dockerfile'
+    buildContext: '$(app2Path)'
     repository: 'rang-de-basanti'
-    tags: |
-      latest
-
-
-# =========================================================
-# 7. VERIFY DOCKER IMAGES
-# =========================================================
+    tags: latest
 
 - powershell: |
-
-    Write-Host "=============================================="
-    Write-Host "DOCKER IMAGES"
-    Write-Host "=============================================="
-
-    docker images
-
-    Write-Host ""
-    Write-Host "Checking Aaya Saawan image..."
-
-    docker image inspect aaya-saawan-app:latest
-
-    Write-Host ""
-    Write-Host "Checking Rang De Basanti image..."
-
-    docker image inspect rang-de-basanti:latest
-
-  displayName: 'Verify Docker Images'
-
-
-# =========================================================
-# 8. REMOVE OLD CONTAINERS
-# =========================================================
-
-- powershell: |
-
-    Write-Host "Removing old containers..."
-
     docker rm -f aaya-saawan-container 2>$null
     docker rm -f rang-de-basanti-container 2>$null
 
-    Write-Host "Old containers removed."
-
-  displayName: 'Remove Old Containers'
-  continueOnError: true
-
-
-# =========================================================
-# 9. RUN AAYA SAAWAN APPLICATION
-# =========================================================
-
-- powershell: |
-
-    Write-Host "=============================================="
-    Write-Host "STARTING AAYA SAAWAN APPLICATION"
-    Write-Host "=============================================="
-
-    docker run -d `
-      --name aaya-saawan-container `
-      -p 8081:80 `
-      --restart unless-stopped `
-      aaya-saawan-app:latest
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "ERROR: Failed to start Aaya Saawan container."
-        exit 1
-    }
-
-    Write-Host "Aaya Saawan container started."
-
-  displayName: 'Run Aaya Saawan Container'
-
-
-# =========================================================
-# 10. RUN RANG DE BASANTI APPLICATION
-# =========================================================
-
-- powershell: |
-
-    Write-Host "=============================================="
-    Write-Host "STARTING RANG DE BASANTI APPLICATION"
-    Write-Host "=============================================="
-
-    docker run -d `
-      --name rang-de-basanti-container `
-      -p 8082:80 `
-      --restart unless-stopped `
-      rang-de-basanti:latest
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "ERROR: Failed to start Rang De Basanti container."
-        exit 1
-    }
-
-    Write-Host "Rang De Basanti container started."
-
-  displayName: 'Run Rang De Basanti Container'
-
-
-# =========================================================
-# 11. WAIT FOR APPLICATIONS
-# =========================================================
-
-- powershell: |
-
-    Write-Host "Waiting for containers to start..."
+    docker run -d --name aaya-saawan-container -p 8081:80 --restart unless-stopped aaya-saawan-app:latest
+    docker run -d --name rang-de-basanti-container -p 8082:80 --restart unless-stopped rang-de-basanti:latest
 
     Start-Sleep -Seconds 5
-
-  displayName: 'Wait for Applications'
-
-
-# =========================================================
-# 12. VERIFY CONTAINERS
-# =========================================================
-
-- powershell: |
-
-    Write-Host ""
-    Write-Host "=============================================="
-    Write-Host "RUNNING CONTAINERS"
-    Write-Host "=============================================="
-
     docker ps
-
-  displayName: 'Verify Running Containers'
-
-
-# =========================================================
-# 13. CHECK AAYA SAAWAN LOGS
-# =========================================================
+  displayName: 'Run Both Containers'
 
 - powershell: |
+    $urls = @{ "Aaya Saawan" = "http://localhost:8081"; "Rang De Basanti" = "http://localhost:8082" }
 
-    Write-Host "=============================================="
-    Write-Host "AAYA SAAWAN CONTAINER LOGS"
-    Write-Host "=============================================="
-
-    docker logs aaya-saawan-container
-
-  displayName: 'Check Aaya Saawan Logs'
-
-
-# =========================================================
-# 14. CHECK RANG DE BASANTI LOGS
-# =========================================================
-
-- powershell: |
-
-    Write-Host "=============================================="
-    Write-Host "RANG DE BASANTI CONTAINER LOGS"
-    Write-Host "=============================================="
-
-    docker logs rang-de-basanti-container
-
-  displayName: 'Check Rang De Basanti Logs'
-
-
-# =========================================================
-# 15. TEST AAYA SAAWAN APPLICATION
-# =========================================================
-
-- powershell: |
-
-    Write-Host "Testing:"
-    Write-Host "http://localhost:8081"
-
-    try {
-
-        $response = Invoke-WebRequest `
-          -Uri "http://localhost:8081" `
-          -UseBasicParsing `
-          -TimeoutSec 10
-
-        Write-Host ""
-        Write-Host "Aaya Saawan HTTP Status:"
-        Write-Host $response.StatusCode
-
-        if ($response.StatusCode -ne 200) {
-            Write-Host "Aaya Saawan application test failed."
+    foreach ($name in $urls.Keys) {
+        $url = $urls[$name]
+        try {
+            $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 10
+            Write-Host "$name -> $($r.StatusCode)"
+            if ($r.StatusCode -ne 200) { exit 1 }
+        }
+        catch {
+            Write-Host "ERROR: $name not reachable at $url"
+            docker logs $(if ($name -eq 'Aaya Saawan') { 'aaya-saawan-container' } else { 'rang-de-basanti-container' })
             exit 1
         }
-
-        Write-Host "Aaya Saawan application is working."
-
-    }
-    catch {
-
-        Write-Host ""
-        Write-Host "ERROR: Aaya Saawan application is NOT reachable."
-        Write-Host $_
-
-        docker ps
-        docker logs aaya-saawan-container
-
-        exit 1
     }
 
-  displayName: 'Test Aaya Saawan Application'
-
-
-# =========================================================
-# 16. TEST RANG DE BASANTI APPLICATION
-# =========================================================
-
-- powershell: |
-
-    Write-Host "Testing:"
-    Write-Host "http://localhost:8082"
-
-    try {
-
-        $response = Invoke-WebRequest `
-          -Uri "http://localhost:8082" `
-          -UseBasicParsing `
-          -TimeoutSec 10
-
-        Write-Host ""
-        Write-Host "Rang De Basanti HTTP Status:"
-        Write-Host $response.StatusCode
-
-        if ($response.StatusCode -ne 200) {
-            Write-Host "Rang De Basanti application test failed."
-            exit 1
-        }
-
-        Write-Host "Rang De Basanti application is working."
-
-    }
-    catch {
-
-        Write-Host ""
-        Write-Host "ERROR: Rang De Basanti application is NOT reachable."
-        Write-Host $_
-
-        docker ps
-        docker logs rang-de-basanti-container
-
-        exit 1
-    }
-
-  displayName: 'Test Rang De Basanti Application'
-
-
-# =========================================================
-# 17. FINAL STATUS
-# =========================================================
-
-- powershell: |
-
-    Write-Host ""
-    Write-Host "===================================================="
-    Write-Host "       BOTH APPLICATIONS DEPLOYED SUCCESSFULLY"
-    Write-Host "===================================================="
-    Write-Host ""
-
-    Write-Host "AAYA SAAWAN APPLICATION"
-    Write-Host "http://localhost:8081"
-    Write-Host ""
-
-    Write-Host "RANG DE BASANTI APPLICATION"
-    Write-Host "http://localhost:8082"
-    Write-Host ""
-
-    Write-Host "DOCKER CONTAINERS"
-    docker ps
-
-    Write-Host ""
-    Write-Host "===================================================="
-
-  displayName: 'Deployment Summary'
+    Write-Host "Both apps running fine."
+  displayName: 'Test Both Applications'
