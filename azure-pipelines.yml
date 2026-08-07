@@ -1,0 +1,215 @@
+# Docker
+# Build a Docker image
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+- main
+
+pool:
+  name: NayaInfra
+
+steps:
+
+# =========================================================
+# 1. CHECK DOCKER
+# =========================================================
+
+- powershell: |
+    Write-Host "Checking Docker..."
+    docker --version
+    docker info
+  displayName: 'Check Docker'
+
+
+# =========================================================
+# 2. BUILD AAYA SAAWAN APPLICATION
+# =========================================================
+
+- task: Docker@2
+  displayName: 'Build Aaya Saawan Image'
+  inputs:
+    command: build
+    Dockerfile: 'app/Dockerfile'
+    buildContext: '.'
+    repository: 'aaya-saawan-app'
+    tags: |
+      latest
+
+
+# =========================================================
+# 3. BUILD RANG DE BASANTI APPLICATION
+# =========================================================
+
+- task: Docker@2
+  displayName: 'Build Rang De Basanti Image'
+  inputs:
+    command: build
+    Dockerfile: 'rang-de-basanti/Dockerfile'
+    buildContext: 'rang-de-basanti'
+    repository: 'rang-de-basanti'
+    tags: |
+      latest
+
+
+# =========================================================
+# 4. VERIFY BOTH DOCKER IMAGES
+# =========================================================
+
+- powershell: |
+    Write-Host "======================================"
+    Write-Host "Docker Images"
+    Write-Host "======================================"
+
+    docker images
+
+  displayName: 'Verify Docker Images'
+
+
+# =========================================================
+# 5. STOP AND REMOVE OLD APP CONTAINERS
+# =========================================================
+
+- powershell: |
+    Write-Host "Removing old containers if present..."
+
+    docker rm -f aaya-saawan-container 2>$null
+    docker rm -f rang-de-basanti-container 2>$null
+
+  displayName: 'Remove Old Containers'
+  continueOnError: true
+
+
+# =========================================================
+# 6. RUN AAYA SAAWAN APPLICATION
+# =========================================================
+
+- powershell: |
+    Write-Host "Starting Aaya Saawan Application..."
+
+    docker run -d `
+      --name aaya-saawan-container `
+      -p 8081:80 `
+      --restart unless-stopped `
+      aaya-saawan-app:latest
+
+  displayName: 'Run Aaya Saawan Container'
+
+
+# =========================================================
+# 7. RUN RANG DE BASANTI APPLICATION
+# =========================================================
+
+- powershell: |
+    Write-Host "Starting Rang De Basanti Application..."
+
+    docker run -d `
+      --name rang-de-basanti-container `
+      -p 8082:80 `
+      --restart unless-stopped `
+      rang-de-basanti:latest
+
+  displayName: 'Run Rang De Basanti Container'
+
+
+# =========================================================
+# 8. WAIT FOR CONTAINERS
+# =========================================================
+
+- powershell: |
+    Start-Sleep -Seconds 5
+
+  displayName: 'Wait for Containers'
+
+
+# =========================================================
+# 9. VERIFY RUNNING CONTAINERS
+# =========================================================
+
+- powershell: |
+    Write-Host "======================================"
+    Write-Host "Running Docker Containers"
+    Write-Host "======================================"
+
+    docker ps
+
+  displayName: 'Verify Running Containers'
+
+
+# =========================================================
+# 10. TEST APP 1
+# =========================================================
+
+- powershell: |
+    Write-Host "Testing Aaya Saawan Application..."
+
+    try {
+        $response = Invoke-WebRequest `
+          -Uri "http://localhost:8081" `
+          -UseBasicParsing `
+          -TimeoutSec 10
+
+        Write-Host "App 1 Status Code: $($response.StatusCode)"
+
+        if ($response.StatusCode -eq 200) {
+            Write-Host "Aaya Saawan Application is RUNNING successfully."
+        }
+    }
+    catch {
+        Write-Host "App 1 test failed."
+        Write-Host $_
+        exit 1
+    }
+
+  displayName: 'Test Aaya Saawan Application'
+
+
+# =========================================================
+# 11. TEST APP 2
+# =========================================================
+
+- powershell: |
+    Write-Host "Testing Rang De Basanti Application..."
+
+    try {
+        $response = Invoke-WebRequest `
+          -Uri "http://localhost:8082" `
+          -UseBasicParsing `
+          -TimeoutSec 10
+
+        Write-Host "App 2 Status Code: $($response.StatusCode)"
+
+        if ($response.StatusCode -eq 200) {
+            Write-Host "Rang De Basanti Application is RUNNING successfully."
+        }
+    }
+    catch {
+        Write-Host "App 2 test failed."
+        Write-Host $_
+        exit 1
+    }
+
+  displayName: 'Test Rang De Basanti Application'
+
+
+# =========================================================
+# 12. FINAL OUTPUT
+# =========================================================
+
+- powershell: |
+    Write-Host ""
+    Write-Host "=============================================="
+    Write-Host "       DEPLOYMENT SUCCESSFUL"
+    Write-Host "=============================================="
+    Write-Host ""
+    Write-Host "Aaya Saawan Application:"
+    Write-Host "http://localhost:8081"
+    Write-Host ""
+    Write-Host "Rang De Basanti Application:"
+    Write-Host "http://localhost:8082"
+    Write-Host ""
+    Write-Host "Docker Containers:"
+    docker ps
+    Write-Host ""
+    Write-Host "=============================================="
+
+  displayName: 'Deployment Summary'
