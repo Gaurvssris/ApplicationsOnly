@@ -8,44 +8,32 @@ trigger:
 pool:
   name: NayaInfra
 
+variables:
+  app1Path: '$(Build.SourcesDirectory)/ApplicationsOnly/aaya-saawan-jhoom-ke'
+  app2Path: '$(Build.SourcesDirectory)/ApplicationsOnly/rang-de-basanti'
+
 steps:
 
 # =========================================================
-# 1. FIND DOCKERFILES AUTOMATICALLY
+# 1. VERIFY DOCKERFILES EXIST
 # =========================================================
 
 - powershell: |
-    Write-Host "Searching for Dockerfiles in repo..."
-
-    $dockerfiles = Get-ChildItem -Path "$(Build.SourcesDirectory)" -Recurse -Filter "Dockerfile" -File
-
-    if ($dockerfiles.Count -lt 2) {
-        Write-Host "ERROR: Expected at least 2 Dockerfiles, found $($dockerfiles.Count)"
-        $dockerfiles | ForEach-Object { Write-Host $_.FullName }
+    Write-Host "Checking App1 Dockerfile: $(app1Path)\Dockerfile"
+    if (!(Test-Path "$(app1Path)\Dockerfile")) {
+        Write-Host "ERROR: Aaya Saawan Dockerfile not found at $(app1Path)"
         exit 1
     }
+    Write-Host "App1 Dockerfile FOUND."
 
-    $app1 = $dockerfiles | Where-Object { $_.FullName -match "aaya-sawan-jhoom-ke" } | Select-Object -First 1
-    $app2 = $dockerfiles | Where-Object { $_.FullName -match "rang-de-basanti" } | Select-Object -First 1
-
-    if (-not $app1) {
-        Write-Host "ERROR: Aaya Saawan Dockerfile not found!"
+    Write-Host "Checking App2 Dockerfile: $(app2Path)\Dockerfile"
+    if (!(Test-Path "$(app2Path)\Dockerfile")) {
+        Write-Host "ERROR: Rang De Basanti Dockerfile not found at $(app2Path)"
         exit 1
     }
-    if (-not $app2) {
-        Write-Host "ERROR: Rang De Basanti Dockerfile not found!"
-        exit 1
-    }
+    Write-Host "App2 Dockerfile FOUND."
 
-    Write-Host "App1 Dockerfile: $($app1.FullName)"
-    Write-Host "App2 Dockerfile: $($app2.FullName)"
-
-    Write-Host "##vso[task.setvariable variable=app1Dockerfile]$($app1.FullName)"
-    Write-Host "##vso[task.setvariable variable=app1Context]$($app1.DirectoryName)"
-    Write-Host "##vso[task.setvariable variable=app2Dockerfile]$($app2.FullName)"
-    Write-Host "##vso[task.setvariable variable=app2Context]$($app2.DirectoryName)"
-
-  displayName: 'Find Dockerfiles'
+  displayName: 'Verify Dockerfiles'
 
 
 # =========================================================
@@ -56,8 +44,8 @@ steps:
   displayName: 'Build Aaya Saawan Image'
   inputs:
     command: build
-    Dockerfile: '$(app1Dockerfile)'
-    buildContext: '$(app1Context)'
+    Dockerfile: '$(app1Path)/Dockerfile'
+    buildContext: '$(app1Path)'
     repository: 'aaya-saawan-app'
     tags: latest
 
@@ -70,8 +58,8 @@ steps:
   displayName: 'Build Rang De Basanti Image'
   inputs:
     command: build
-    Dockerfile: '$(app2Dockerfile)'
-    buildContext: '$(app2Context)'
+    Dockerfile: '$(app2Path)/Dockerfile'
+    buildContext: '$(app2Path)'
     repository: 'rang-de-basanti'
     tags: latest
 
