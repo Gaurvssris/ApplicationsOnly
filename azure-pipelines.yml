@@ -8,29 +8,77 @@ trigger:
 pool:
   name: NayaInfra
 
-variables:
-  app1Path: '$(Build.SourcesDirectory)/ApplicationsOnly/aaya-sawan-jhoom-ke'
-  app2Path: '$(Build.SourcesDirectory)/ApplicationsOnly/rang-de-basanti'
-
 steps:
+
+# =========================================================
+# 1. FIND DOCKERFILES AUTOMATICALLY
+# =========================================================
+
+- powershell: |
+    Write-Host "Searching for Dockerfiles in repo..."
+
+    $dockerfiles = Get-ChildItem -Path "$(Build.SourcesDirectory)" -Recurse -Filter "Dockerfile" -File
+
+    if ($dockerfiles.Count -lt 2) {
+        Write-Host "ERROR: Expected at least 2 Dockerfiles, found $($dockerfiles.Count)"
+        $dockerfiles | ForEach-Object { Write-Host $_.FullName }
+        exit 1
+    }
+
+    $app1 = $dockerfiles | Where-Object { $_.FullName -match "aaya-sawan-jhoom-ke" } | Select-Object -First 1
+    $app2 = $dockerfiles | Where-Object { $_.FullName -match "rang-de-basanti" } | Select-Object -First 1
+
+    if (-not $app1) {
+        Write-Host "ERROR: Aaya Saawan Dockerfile not found!"
+        exit 1
+    }
+    if (-not $app2) {
+        Write-Host "ERROR: Rang De Basanti Dockerfile not found!"
+        exit 1
+    }
+
+    Write-Host "App1 Dockerfile: $($app1.FullName)"
+    Write-Host "App2 Dockerfile: $($app2.FullName)"
+
+    Write-Host "##vso[task.setvariable variable=app1Dockerfile]$($app1.FullName)"
+    Write-Host "##vso[task.setvariable variable=app1Context]$($app1.DirectoryName)"
+    Write-Host "##vso[task.setvariable variable=app2Dockerfile]$($app2.FullName)"
+    Write-Host "##vso[task.setvariable variable=app2Context]$($app2.DirectoryName)"
+
+  displayName: 'Find Dockerfiles'
+
+
+# =========================================================
+# 2. BUILD AAYA SAAWAN IMAGE
+# =========================================================
 
 - task: Docker@2
   displayName: 'Build Aaya Saawan Image'
   inputs:
     command: build
-    Dockerfile: '$(app1Path)/Dockerfile'
-    buildContext: '$(Build.SourcesDirectory)'
+    Dockerfile: '$(app1Dockerfile)'
+    buildContext: '$(app1Context)'
     repository: 'aaya-saawan-app'
     tags: latest
+
+
+# =========================================================
+# 3. BUILD RANG DE BASANTI IMAGE
+# =========================================================
 
 - task: Docker@2
   displayName: 'Build Rang De Basanti Image'
   inputs:
     command: build
-    Dockerfile: '$(app2Path)/Dockerfile'
-    buildContext: '$(app2Path)'
+    Dockerfile: '$(app2Dockerfile)'
+    buildContext: '$(app2Context)'
     repository: 'rang-de-basanti'
     tags: latest
+
+
+# =========================================================
+# 4. RUN BOTH CONTAINERS
+# =========================================================
 
 - powershell: |
     docker rm -f aaya-saawan-container 2>$null
@@ -41,10 +89,17 @@ steps:
 
     Start-Sleep -Seconds 5
     docker ps
+
   displayName: 'Run Both Containers'
+
+
+# =========================================================
+# 5. TEST BOTH APPLICATIONS
+# =========================================================
 
 - powershell: |
     $urls = @{ "Aaya Saawan" = "http://localhost:8081"; "Rang De Basanti" = "http://localhost:8082" }
+    $containers = @{ "Aaya Saawan" = "aaya-saawan-container"; "Rang De Basanti" = "rang-de-basanti-container" }
 
     foreach ($name in $urls.Keys) {
         $url = $urls[$name]
@@ -55,10 +110,11 @@ steps:
         }
         catch {
             Write-Host "ERROR: $name not reachable at $url"
-            docker logs $(if ($name -eq 'Aaya Saawan') { 'aaya-saawan-container' } else { 'rang-de-basanti-container' })
+            docker logs $($containers[$name])
             exit 1
         }
     }
 
     Write-Host "Both apps running fine."
+
   displayName: 'Test Both Applications'
