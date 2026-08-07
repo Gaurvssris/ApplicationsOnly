@@ -1,0 +1,71 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  name: 'NayaInfra'   # apna self-hosted agent pool name yahan daalo (localhost par run karne ke liye self-hosted agent zaroori hai)
+
+variables:
+  app1Path: 'aaya-saawan-jhoom-ke'
+  app2Path: 'rang-de-basanti'
+  app1Image: 'aaya-saawan-jhoom-ke:latest'
+  app2Image: 'rang-de-basanti:latest'
+  app1Container: 'aaya-saawan-jhoom-ke-container'
+  app2Container: 'rang-de-basanti-container'
+  app1Port: 8081
+  app2Port: 8082
+
+stages:
+  - stage: Build
+    displayName: 'Build Docker Images'
+    jobs:
+      - job: BuildImages
+        displayName: 'Build both app images'
+        steps:
+          - script: |
+              echo "Building App 1: aaya-saawan-jhoom-ke"
+              docker build -t $(app1Image) $(app1Path)
+            displayName: 'Build aaya-saawan-jhoom-ke image'
+
+          - script: |
+              echo "Building App 2: rang-de-basanti"
+              docker build -t $(app2Image) $(app2Path)
+            displayName: 'Build rang-de-basanti image'
+
+  - stage: Deploy
+    displayName: 'Run Containers on Localhost'
+    dependsOn: Build
+    jobs:
+      - job: RunContainers
+        displayName: 'Run both containers'
+        steps:
+          - script: |
+              echo "Stopping old container if exists..."
+              docker stop $(app1Container) || true
+              docker rm $(app1Container) || true
+
+              echo "Running App 1 container..."
+              docker run -d -p $(app1Port):80 --name $(app1Container) $(app1Image)
+            displayName: 'Run aaya-saawan-jhoom-ke container'
+
+          - script: |
+              echo "Stopping old container if exists..."
+              docker stop $(app2Container) || true
+              docker rm $(app2Container) || true
+
+              echo "Running App 2 container..."
+              docker run -d -p $(app2Port):80 --name $(app2Container) $(app2Image)
+            displayName: 'Run rang-de-basanti container'
+
+          - script: |
+              echo "=========================================="
+              echo "App 1 (aaya-saawan-jhoom-ke) running at: http://localhost:$(app1Port)"
+              echo "App 2 (rang-de-basanti) running at: http://localhost:$(app2Port)"
+              echo "=========================================="
+            displayName: 'Show URLs'
